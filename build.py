@@ -45,6 +45,7 @@ OUT="site"; shutil.rmtree(OUT,ignore_errors=True); os.makedirs(OUT+"/img"); os.m
 e=html.escape
 EMO=re.compile("[\U0001F300-\U0001FAFF☀-➿️\U0001F3FB-\U0001F3FF]")
 A=[]; SKIP=[]; seen=set()
+PFILES={re.sub(r"\s+","",f).lower():os.path.join("posts",f) for f in os.listdir("posts")}  # фото ищутся без учёта регистра и пробелов
 for fp in sorted(glob.glob("posts/*.txt")):
     base=os.path.splitext(os.path.basename(fp))[0]
     if base.startswith("_") or norm(base).startswith(("шаблон","primer")): continue
@@ -95,8 +96,9 @@ for fp in sorted(glob.glob("posts/*.txt")):
         slug=slugify(base)
         if not slug or slug in seen: raise ValueError("имя файла должно быть уникальным и состоять из латинских букв, цифр и дефисов")
         def findph(stem):
-            for x in ("jpg","jpeg","png","webp","JPG","JPEG","PNG","WEBP"):
-                if os.path.exists(f"posts/{stem}.{x}"): return f"posts/{stem}.{x}"
+            for x in ("jpg","jpeg","png","webp"):
+                f=PFILES.get(f"{stem}.{x}".lower())
+                if f: return f
         cov=findph(base+"-1") or findph(base)
         if not cov: raise ValueError(f"нет главного фото {base}-1.jpg")
         im=Image.open(cov).convert("RGB")
