@@ -45,8 +45,15 @@ OUT="site"; shutil.rmtree(OUT,ignore_errors=True); os.makedirs(OUT+"/img"); os.m
 e=html.escape
 EMO=re.compile("[\U0001F300-\U0001FAFF☀-➿️\U0001F3FB-\U0001F3FF]")
 A=[]; SKIP=[]; seen=set()
-PFILES={re.sub(r"\s+","",f).lower():os.path.join("posts",f) for f in os.listdir("posts")}  # фото ищутся без учёта регистра и пробелов
-for fp in sorted(glob.glob("posts/*.txt")):
+# Новости лежат в папке posts. Мак при распаковке иногда называет её «posts 2», «posts 3» — такие папки тоже читаются.
+PDIRS=["posts"]+sorted(d for d in os.listdir(".") if os.path.isdir(d) and d.lower().startswith("posts") and d!="posts")
+PFILES={}
+for _d in PDIRS:
+    for _f in os.listdir(_d): PFILES.setdefault(re.sub(r"\s+","",_f).lower(),os.path.join(_d,_f))  # без учёта регистра и пробелов
+_TX={}
+for _d in PDIRS:
+    for _f in sorted(glob.glob(os.path.join(glob.escape(_d),"*.txt"))): _TX.setdefault(os.path.basename(_f).lower(),_f)
+for fp in sorted(_TX.values(),key=lambda x:os.path.basename(x)):
     base=os.path.splitext(os.path.basename(fp))[0]
     if base.startswith("_") or norm(base).startswith(("шаблон","primer")): continue
     try:
