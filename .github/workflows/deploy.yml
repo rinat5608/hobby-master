@@ -1,0 +1,51 @@
+name: Сборка и публикация сайта
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Убрать старые файлы готового сайта (нужно один раз)
+        run: |
+          OLD="index.html 404.html CNAME favicon.svg robots.txt sitemap.xml rss.xml css img og mashiny brendy katera samolety poisk o-sajte"
+          if [ -f build.py ] && [ -d posts ] && [ -f index.html ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git rm -r -q --ignore-unmatch $OLD
+            git commit -q -m "Убраны старые файлы: сайт теперь собирается автоматически"
+            git push
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Собрать сайт
+        run: |
+          pip install -q pillow
+          python build.py
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
