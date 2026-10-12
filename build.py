@@ -20,7 +20,7 @@ if os.path.exists("settings.txt"):
     for ln in readtxt("settings.txt").split("\n"):
         if ":" in ln and not ln.strip().startswith("#"):
             k,v=ln.split(":",1); SET[norm(k)]=v.strip()
-TG=SET.get("телеграм",""); METRIKA_ID=re.sub(r"\D","",SET.get("метрика","")); YA_VERIFY=SET.get("яндекс вебмастер",""); G_VERIFY=SET.get("google","")
+TG=SET.get("телеграм",""); VK=SET.get("вконтакте",""); METRIKA_ID=re.sub(r"\D","",SET.get("метрика","")); YA_VERIFY=SET.get("яндекс вебмастер",""); G_VERIFY=SET.get("google","")
 SECS={"mashiny":("Машины","машины"),"katera":("Катера и лодки","катера"),"samolety":("Самолёты","самолеты")}
 SECMAP={"машины":"mashiny","машина":"mashiny","авто":"mashiny","катера":"katera","катер":"katera","лодки":"katera","лодка":"katera","катера и лодки":"katera","самолеты":"samolety","самолет":"samolety"}
 MONTHS="января февраля марта апреля мая июня июля августа сентября октября ноября декабря".split()
@@ -38,7 +38,9 @@ def pdate(s):
     if m and m.group(2) in MONTHS: return date(int(m.group(3)),MONTHS.index(m.group(2))+1,int(m.group(1)))
     raise ValueError("не понял дату «"+s+"», нужен вид 06.10.2026")
 BRANDS2=["Cross RC","Hobby Plus","Traction Hobby","Pro Boat","Team Associated","Element RC","Team Losi","RC4WD","Boom Racing","Carisma Scale","Killerbody RC","HPI Racing","Tekno RC","E-flite","Horizon Hobby"]
-SRCN={"bigsquidrc.com":"Big Squid RC"}
+KINDMAP={"новость":"novost","новости":"novost","обзор":"obzor","сравнение":"sravnenie","топ":"top","подборка":"top","рейтинг":"top"}
+KINDN={"novost":"Новость","obzor":"Обзор","sravnenie":"Сравнение","top":"Топ"}
+SRCN={"bigsquidrc.com":"Big Squid RC","traxxas.com":"Traxxas","redcatracing.com":"Redcat","fmshobby.com":"FMS","ftx-rc.com":"FTX","remo-hobby.ru":"Remo Hobby"}
 OUT="site"; shutil.rmtree(OUT,ignore_errors=True); os.makedirs(OUT+"/img"); os.makedirs(OUT+"/css")
 e=html.escape
 EMO=re.compile("[\U0001F300-\U0001FAFF☀-➿️\U0001F3FB-\U0001F3FF]")
@@ -50,42 +52,76 @@ for fp in sorted(glob.glob("posts/*.txt")):
         raw=readtxt(fp)
         m=re.search(r"^\s*-{3,}\s*$",raw,re.M)
         if not m: raise ValueError("нет строки --- между шапкой и текстом")
-        H={}
+        H={}; SRCS=[]
         for ln in raw[:m.start()].split("\n"):
-            if ":" in ln: k,v=ln.split(":",1); H[norm(k)]=v.strip()
+            if ":" in ln:
+                k,v=ln.split(":",1); k=norm(k); v=v.strip()
+                if k.startswith("источник"): SRCS+=re.findall(r"https?://[^\s,;]+",v)
+                else: H[k]=v
         rest=EMO.sub("",raw[m.end():])
+        rest="\n".join(l for l in rest.split("\n") if not l.strip().startswith("//"))
         specs=[]
         ms=re.search(r"^\s*характеристики\s*:\s*$",rest,re.M|re.I)
         if ms:
             specs=[re.sub(r"^\s*[-–—•*]\s*","",x).strip() for x in rest[ms.end():].split("\n") if x.strip()]
             rest=rest[:ms.start()]
-        paras=[re.sub(r"\s+([.,!?])",r"\1",re.sub(r"\s+"," ",p)).strip() for p in re.split(r"\n\s*\n",rest) if p.strip()]
-        if not paras: raise ValueError("нет текста новости")
-        name=H.get("название") or paras[0]
+        clean=lambda t:re.sub(r"\s+([.,!?])",r"\1",re.sub(r"\s+"," ",t)).strip()
+        PHRE=re.compile(r"^\[\s*фото\s*(\d+)\s*\]",re.I)
+        BL=[]
+        for chunk in re.split(r"\n\s*\n",rest):
+            lines=[l.strip() for l in chunk.split("\n") if l.strip()]
+            if not lines: continue
+            if all(PHRE.match(l) for l in lines):
+                for l in lines: BL.append(("img",int(PHRE.match(l).group(1))))
+            elif lines[0].startswith("#"):
+                BL.append(("h",clean(lines[0].lstrip("#"))))
+                if lines[1:]: BL.append(("p",clean(" ".join(lines[1:]))))
+            elif all(l.startswith("|") for l in lines):
+                rows=[[c.strip() for c in l.strip().strip("|").split("|")] for l in lines if not re.match(r"^\|[\s:|-]+\|?$",l)]
+                if rows: BL.append(("table",rows))
+            elif all(re.match(r"^[-–—•*]\s",l) for l in lines): BL.append(("ul",[clean(re.sub(r"^[-–—•*]\s*","",l)) for l in lines]))
+            else: BL.append(("p",clean(" ".join(lines))))
+        if not BL or BL[0][0]!="p": raise ValueError("первой строкой после --- должен идти заголовок")
+        title=BL[0][1]; BL=BL[1:]
+        kind=KINDMAP.get(norm(H.get("тип","новость")),"novost")
+        name=H.get("название") or title
         d=pdate(H.get("дата","")) if H.get("дата") else date.today()
         sec=SECMAP.get(norm(H.get("раздел","машины")),"mashiny")
         scale=H.get("масштаб","").replace("/",":").replace(" ","")
         if scale and not re.match(r"^1:\d+$",scale): scale=""
-        brand=H.get("бренд") or next((b for b in BRANDS2 if norm(name).startswith(norm(b)+" ")),name.split()[0].rstrip(","))
+        if "бренд" in H: brand=H["бренд"] if H["бренд"] not in ("-","—","нет","") else ""
+        elif kind in ("sravnenie","top"): brand=""
+        else: brand=next((b for b in BRANDS2 if norm(name).startswith(norm(b)+" ")),name.split()[0].rstrip(","))
         slug=slugify(base)
         if not slug or slug in seen: raise ValueError("имя файла должно быть уникальным и состоять из латинских букв, цифр и дефисов")
-        ph=[p for x in ("jpg","jpeg","png","webp","JPG","JPEG","PNG") for p in glob.glob(f"posts/{glob.escape(base)}.{x}")]
-        if not ph: raise ValueError("нет фото с таким же именем (jpg или png)")
-        im=Image.open(ph[0]).convert("RGB")
+        def findph(stem):
+            for x in ("jpg","jpeg","png","webp","JPG","JPEG","PNG","WEBP"):
+                if os.path.exists(f"posts/{stem}.{x}"): return f"posts/{stem}.{x}"
+        cov=findph(base+"-1") or findph(base)
+        if not cov: raise ValueError(f"нет главного фото {base}-1.jpg")
+        im=Image.open(cov).convert("RGB")
         big=im.copy(); big.thumbnail((1400,1400)); big.save(f"{OUT}/img/{slug}.jpg","JPEG",quality=84,progressive=True)
-        sm=im.copy(); sm.thumbnail((640,640)); sm.save(f"{OUT}/img/{slug}-s.jpg","JPEG",quality=80,progressive=True)
-        src=H.get("источник",""); src=src if src.startswith("http") else ""
-        host=urlparse(src).netloc.replace("www.","") if src else ""
-        body=paras[1:] if len(paras)>1 else []
-        desc=H.get("кратко") or (body[0] if body else paras[0])
+        PH={}
+        for t_,v_ in BL:
+            if t_=="img" and v_>1 and v_ not in PH:
+                f2=findph(f"{base}-{v_}")
+                if f2:
+                    i2=Image.open(f2).convert("RGB"); i2.thumbnail((1400,1400)); i2.save(f"{OUT}/img/{slug}-{v_}.jpg","JPEG",quality=82,progressive=True); PH[v_]=i2.size
+        BL=[x for x in BL if x[0]!="img" or x[1] in PH]
+        body=[x[1] for x in BL if x[0] in ("p","h")]
+        firstp=next((x[1] for x in BL if x[0]=="p"),title)
+        desc=H.get("кратко") or firstp
         if len(desc)>220: desc=desc[:217].rsplit(" ",1)[0]+"…"
         seen.add(slug)
-        A.append(dict(slug=slug,sec=sec,date=f"{d.day} {MONTHS[d.month-1]} {d.year}",iso=d.isoformat(),name=name,scale=scale,status=H.get("статус",""),price=H.get("цена",""),src=src,srcn=SRCN.get(host,host),credit=H.get("фото","производитель"),desc=desc,specs=specs,title=paras[0],body=body,w=big.size[0],h=big.size[1],brand=brand,bslug=slugify(brand),sslug=("masshtab-"+scale.replace(":","-")) if scale and sec=="mashiny" else ""))
+        src=SRCS[0] if SRCS else ""; host=urlparse(src).netloc.replace("www.","") if src else ""
+        order=int(H["порядок"]) if H.get("порядок","").isdigit() else 0
+        A.append(dict(slug=slug,sec=sec,kind=kind,order=order,date=f"{d.day} {MONTHS[d.month-1]} {d.year}",iso=d.isoformat(),name=name,scale=scale,status=H.get("статус",""),price=H.get("цена",""),src=src,srcs=SRCS,srcn=SRCN.get(host,host),credit=H.get("фото","производитель"),desc=desc,specs=specs,title=title,body=body,blocks=BL,ph=PH,w=big.size[0],h=big.size[1],brand=brand,bslug=slugify(brand) if brand else "",sslug=("masshtab-"+scale.replace(":","-")) if scale and sec=="mashiny" else ""))
     except Exception as ex:
         SKIP.append(f"{os.path.basename(fp)}: {ex}"); print("ПРОПУЩЕНО:",SKIP[-1])
 if not A: sys.exit("Нет ни одной новости в папке posts")
-A.sort(key=lambda a:(a['iso'],a['slug']),reverse=True)
-BR=dict(sorted({a['bslug']:a['brand'] for a in A}.items()))
+A.sort(key=lambda a:(a['iso'],-a['order'],a['slug']),reverse=True)
+BR=dict(sorted({a['bslug']:a['brand'] for a in A if a['bslug']}.items()))
+REV=[a for a in A if a['kind']!='novost']
 den=lambda a:int(a['scale'].split(':')[1])
 SCL={a['sslug']:a['scale'] for a in sorted([a for a in A if a['sslug']],key=den)}
 def plur(n,a="модель",b="модели",c="моделей"):
@@ -167,6 +203,12 @@ footer{border-top:1px solid var(--line);margin-top:56px;padding:28px 0 44px;font
 .share{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:32px 0 0}.share b{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:700;margin-right:6px}
 .share a{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-size:15px;font-weight:600;background:var(--soft);padding:9px 16px;border-radius:999px}.share a:hover{background:var(--yel);color:#111214}.share svg{flex:none}
 .inf{display:inline-block;vertical-align:middle;margin-left:10px}.inf img{display:inline;border-radius:4px}
+.tag.k{background:var(--pill);color:#fff}.kick.k{background:var(--pill);color:#fff}
+article.post h3{font-size:22px;line-height:1.25;margin:34px 0 10px;letter-spacing:-.015em;font-weight:750}
+.tw{overflow-x:auto;margin:6px 0 22px}table.cmp{width:100%;border-collapse:collapse;font-size:16px;min-width:460px}table.cmp th,table.cmp td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line2);vertical-align:top}table.cmp tr:first-child th{font-weight:700;border-bottom:2px solid var(--ink)}table.cmp td:first-child{color:var(--mut);font-weight:500}
+article.post p.price{font-weight:700;background:var(--soft);border-radius:14px;padding:12px 16px}
+.socials{background:var(--pill);color:#fff;border-radius:16px;padding:18px 22px;margin:32px 0 0}article.post .socials p{margin:0 0 12px;font-weight:600;font-size:17px}.socials a{display:inline-block;background:var(--yel);color:#111214;text-decoration:none;font-weight:700;font-size:15px;padding:8px 16px;border-radius:999px;margin:0 8px 6px 0}
+.srcs{margin:6px 0 0;padding-left:18px}.srcs li{word-break:break-all}
 .empty{background:var(--soft);border-radius:20px;padding:28px;margin-top:28px;color:var(--mut)}
 .blist{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}.blist a{text-decoration:none;font-size:14.5px;font-weight:600;background:var(--soft);padding:6px 14px;border-radius:999px}.blist a:hover{background:var(--yel);color:#111214}.blist b{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:700;align-self:center;margin-right:4px}
 @media(max-width:700px){header.top .wrap{height:60px;gap:8px}.side a:not(.sbtn){display:none}.sbtn{margin-right:-10px}header.top .wrap{grid-template-columns:44px auto 44px;justify-content:space-between}.logo{font-size:13.5px;padding:7px 12px}.ico svg{width:32px;height:22px}.brand{gap:9px}.ico{gap:6px}}
@@ -202,10 +244,10 @@ def page(path,title,descr,body,depth,kw="",extra="",ogimg=None,ogtype="website",
 <div class="shade" hidden></div>
 <nav class="menu" id="menu" aria-label="Разделы сайта"><button class="x" type="button" aria-label="Закрыть меню">×</button>
 <form class="sform" action="{r}poisk/" method="get" role="search"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input type="search" name="q" placeholder="Поиск по сайту" aria-label="Поиск по сайту" autocomplete="off"></form>
-<p>Разделы</p><a href="{r or './'}">Все новинки</a><a href="{r}mashiny/">Машины</a><a href="{r}katera/">Катера и лодки</a><a href="{r}samolety/">Самолёты</a>
+<p>Разделы</p><a href="{r or './'}">Все новинки</a>{f'<a href="{r}obzory/">Обзоры и сравнения</a>' if REV else ''}<a href="{r}mashiny/">Машины</a><a href="{r}katera/">Катера и лодки</a><a href="{r}samolety/">Самолёты</a>
 <p>Бренды</p>{''.join(f'<a class="s" href="{r}brendy/{k}/">{v}</a>' for k,v in BR.items())}
 {('<p>Масштабы</p><div class="chips">'+''.join(f'<a href="{r}mashiny/{k}/">{v}</a>' for k,v in SCL.items())+'</div>') if SCL else ''}
-<p>Сайт</p><a class="s" href="{r}o-sajte/">О сайте</a>{tg.replace('<a ','<a class="s" ') if tg else ''}<button class="theme" type="button" aria-label="Переключить тему"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span>Тёмная тема</span></button></nav>
+<p>Сайт</p><a class="s" href="{r}o-sajte/">О сайте</a>{tg.replace('<a ','<a class="s" ') if tg else ''}{f'<a class="s" href="{VK}" rel="noopener">ВКонтакте</a>' if VK else ''}<button class="theme" type="button" aria-label="Переключить тему"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span>Тёмная тема</span></button></nav>
 <main class="wrap">
 {body}
 </main>
@@ -217,41 +259,75 @@ def page(path,title,descr,body,depth,kw="",extra="",ogimg=None,ogtype="website",
     os.makedirs(os.path.dirname(fp),exist_ok=True); open(fp,"w",encoding="utf-8").write(h)
 def card(a,r,lazy=True):
     sc=f"<span>{a['scale']}</span><span>·</span>" if a['scale'] else ""
-    return f'''<a class="item" href="{r}{a['sec']}/{a['slug']}/"><div class="im"><img src="{r}img/{a['slug']}.jpg" alt="{e(a['name'])}{', масштаб '+a['scale'] if a['scale'] else ''}" width="{a['w']}" height="{a['h']}"{' loading="lazy"' if lazy else ''}></div><div class="tags"><span class="tag">{e(a['brand'])}</span>{sc}<time datetime="{a['iso']}">{a['date']}</time></div><h2>{e(a['title'])}</h2><p>{e(a['desc'])}</p></a>'''
+    return f'''<a class="item" href="{r}{a['sec']}/{a['slug']}/"><div class="im"><img src="{r}img/{a['slug']}.jpg" alt="{e(a['name'])}{', масштаб '+a['scale'] if a['scale'] else ''}" width="{a['w']}" height="{a['h']}"{' loading="lazy"' if lazy else ''}></div><div class="tags">{f'<span class="tag k">{KINDN[a["kind"]]}</span>' if a['kind']!='novost' else ''}{f'<span class="tag">{e(a["brand"])}</span>' if a['brand'] else ''}{sc}<time datetime="{a['iso']}">{a['date']}</time></div><h2>{e(a['title'])}</h2><p>{e(a['desc'])}</p></a>'''
 # index
 order=A; top=A[:4]
 SHORT=lambda n:re.sub(r' (RTR|ARTR|Kit|Brushed RTR|Extreme Crawler RTR|with Interior RTR|Monster Truck Brushed RTR)$','',n)
-ib=f'''<section class="intro"><h1>Новинки радиоуправляемых моделей</h1><p>Машины, катера и самолёты: что вышло, сколько стоит и чем интересно.</p></section>
+ib=f'''<section class="intro"><h1>Новинки радиоуправляемых моделей</h1><p>Машины, катера и самолёты: новинки, обзоры и сравнения. Что вышло, сколько стоит и что выбрать.</p></section>
 <section class="today"><h2>Свежее</h2>{''.join(f'<a href="{a["sec"]}/{a["slug"]}/">{e(SHORT(a["name"]))}</a>' for a in top)}</section>
 <div class="feed">{''.join(card(a,'',i>0) for i,a in enumerate(order))}</div>'''
 ld=json.dumps({"@context":"https://schema.org","@type":"WebSite","name":NAME,"url":DOMAIN+"/","inLanguage":"ru","potentialAction":{"@type":"SearchAction","target":DOMAIN+"/poisk/?q={search_term_string}","query-input":"required name=search_term_string"}},ensure_ascii=False)
 page("",f"{NAME}: новинки радиоуправляемых моделей, машин и краулеров","Свежие новинки радиоуправляемых машин: краулеры, трофи и скейл-модели Traxxas, FMS, Vanquish, Tamiya и других брендов. Фото, характеристики и цены.",ib,0,"радиоуправляемые машины, rc машины, rc краулер, трофи модели, новинки rc, радиоуправляемые модели",f'<script type="application/ld+json">{ld}</script>',"og/site.jpg")
 # articles
+def rblocks(a,pre):
+    o=[]; first=True
+    for t,v in a['blocks']:
+        if t=="p":
+            if re.match(r"^цен[аы]\s*:",v,re.I): o.append(f'<p class="price">{e(v)}</p>')
+            else: o.append(f'<p{" class=first" if first else ""}>{e(v)}</p>'); first=False
+        elif t=="h": o.append(f"<h3>{e(v)}</h3>")
+        elif t=="ul": o.append('<ul class="feat">'+"".join(f"<li>{e(x)}</li>" for x in v)+"</ul>")
+        elif t=="table":
+            hd,*rw=v
+            o.append('<div class="tw"><table class="cmp"><tr>'+"".join(f"<th>{e(c)}</th>" for c in hd)+"</tr>"+"".join("<tr>"+"".join(f"<td>{e(c)}</td>" for c in r)+"</tr>" for r in rw)+"</table></div>")
+        elif t=="img":
+            w,h=a['ph'][v]; o.append(f'<figure><img src="{pre}img/{a["slug"]}-{v}.jpg" alt="{e(a["name"])}, фото {v}" width="{w}" height="{h}" loading="lazy"></figure>')
+    return "\n".join(o)
+def social():
+    if not (TG or VK): return ""
+    return '<div class="socials"><p>Ещё больше обзоров и новинок радиоуправляемых моделей — в нашем Telegram-канале и группе ВКонтакте.</p>'+(f'<a href="{TG}" rel="noopener">Telegram</a>' if TG else "")+(f'<a href="{VK}" rel="noopener">ВКонтакте</a>' if VK else "")+'</div>'
 for i,a in enumerate(A):
-    rows=[(k,v) for k,v in [("Бренд",a['brand']),("Масштаб",a['scale']),("Статус",a['status']),("Дата новости",a['date'])] if v]
+    news=a['kind']=='novost'
+    rows=[(k,v) for k,v in [("Бренд",a['brand']),("Масштаб",a['scale']),("Статус",a['status']),("Дата новости" if news else "Дата публикации",a['date'])] if v]
     sn=SECS[a['sec']][0]; msc=f", радиоуправляемая модель в масштабе {a['scale']}" if a['scale'] else ", радиоуправляемая модель"
-    kick2=f"""<a class="kick" href="../{a['sslug']}/">Масштаб {a['scale']}</a>""" if a['sslug'] else ""
-    srcl=(f"""Источник: <a href="{e(a['src'])}" rel="nofollow noopener" target="_blank">{e(a['srcn'])}</a>. """ if a['src'] else "")
-    feat=f"<h2>Характеристики {e(a['name'])}</h2><ul class=\"feat\">{''.join(f'<li>{e(s)}</li>' for s in a['specs'])}</ul>" if a['specs'] else ""
-    others=[x for x in A if x is not a][:3]
-    tg=f'<a class="tg" href="{TG}" rel="noopener"><span>Новинки каждый день в <b>Telegram-канале</b></span><span>→</span></a>' if TG else ""
+    kick1=f'<a class="kick k" href="../../obzory/">{KINDN[a["kind"]]}</a>' if not news else ""
+    kickb=f'<a class="kick" href="../../brendy/{a["bslug"]}/">{e(a["brand"])}</a>' if a['bslug'] else ""
+    kick2=f'<a class="kick" href="../{a["sslug"]}/">Масштаб {a["scale"]}</a>' if a['sslug'] else ""
+    if len(a['srcs'])>1: srcl='Источники:<ul class="srcs">'+"".join(f'<li><a href="{e(u)}" rel="nofollow noopener" target="_blank">{e(u)}</a></li>' for u in a['srcs'])+"</ul>"
+    elif a['src']: srcl=f'Источник: <a href="{e(a["src"])}" rel="nofollow noopener" target="_blank">{e(a["srcn"] if news else a["src"])}</a>. '
+    else: srcl=""
+    note="Цены в рублях пересчитаны приблизительно и могут отличаться от цен в магазинах." if news else f"Цены указаны на {a['date']} и могут меняться."
+    feat=(f"<h2>Характеристики {e(a['name'])}</h2><ul class=\"feat\">"+"".join(f"<li>{e(x)}</li>" for x in a['specs'])+"</ul>") if a['specs'] else ""
+    same=[x for x in A if x is not a and (x['kind']=='novost')==news]
+    others=(same+[x for x in A if x is not a and x not in same])[:3]
     pu=f"{DOMAIN}/{a['sec']}/{a['slug']}/"; qt=quote(a['title']); qu=quote(pu,safe="")
     share=f'''<div class="share"><b>Поделиться</b><a href="https://t.me/share/url?url={qu}&amp;text={qt}" target="_blank" rel="noopener nofollow"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M21.9 4.3 18.7 19.6c-.2 1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.3-5 9.100-8.200c.4-.4-.1-.5-.6-.2L6.200 13.300 1.400 11.800c-1-.3-1-1 .2-1.500L20.400 3c.9-.3 1.700.2 1.500 1.300z"/></svg>Telegram</a><a href="https://vk.com/share.php?url={qu}&amp;title={qt}" target="_blank" rel="noopener nofollow"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12.800 17.500C6.500 17.500 2.900 13.200 2.700 6h3.200c.1 5.300 2.400 7.500 4.300 8V6h3v4.500c1.800-.2 3.700-2.300 4.400-4.500h3c-.5 2.800-2.600 4.900-4 5.800 1.500.7 3.800 2.500 4.700 5.700h-3.300c-.7-2.200-2.500-3.900-4.800-4.200v4.200z"/></svg>ВКонтакте</a><a href="https://max.ru/:share?text={qt}%20{qu}" target="_blank" rel="noopener nofollow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-7.700 13.700L3 21l4.500-1.200A9 9 0 1 0 12 3z"/></svg>MAX</a></div>'''
-    b=f'''<div class="crumbs"><a href="../../">Главная</a> / <a href="../">{sn}</a> / <a href="../../brendy/{a['bslug']}/">{e(a['brand'])}</a></div>
-<article class="post"><a class="kick" href="../../brendy/{a['bslug']}/">{e(a['brand'])}</a>{kick2}<h1>{e(a['title'])}</h1><div class="meta"><time datetime="{a['iso']}">{a['date']}</time></div>
-<figure><img src="../../img/{a['slug']}.jpg" alt="{e(a['name'])}{msc}" width="{a['w']}" height="{a['h']}"><figcaption>{e(a['name'])}. Фото: {e(a['credit'])}</figcaption></figure>
-{''.join(f'<p{" class=first" if k==0 else ""}>{e(p)}</p>' for k,p in enumerate(a['body']))}
-<h2>Коротко о модели</h2><table class="spec">{''.join(f'<tr><th>{k}</th><td>{e(v)}</td></tr>' for k,v in rows)}</table>
-{feat}{share}{tg}
-<p class="src">{srcl}Цены в рублях пересчитаны приблизительно и могут отличаться от цен в магазинах.</p></article>
-<h2 class="sec">Ещё новинки</h2><div class="feed">{''.join(card(x,'../../') for x in others)}</div>'''
-    descr=(a['desc']+" "+("Цена: "+a['price']+". " if a['price'] else "")+(f"Масштаб {a['scale']}, характеристики и фото." if a['scale'] else "Характеристики и фото."))[:300]
-    ld=json.dumps({"@context":"https://schema.org","@type":"NewsArticle","headline":a['title'][:110],"datePublished":a['iso'],"dateModified":a['iso'],"image":[f"{DOMAIN}/img/{a['slug']}.jpg"],"author":{"@type":"Organization","name":NAME,"url":DOMAIN+"/"},"publisher":{"@type":"Organization","name":NAME},"mainEntityOfPage":pu,"inLanguage":"ru"},ensure_ascii=False)
-    bc=json.dumps({"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Главная","item":DOMAIN+"/"},{"@type":"ListItem","position":2,"name":sn,"item":f"{DOMAIN}/{a['sec']}/"},{"@type":"ListItem","position":3,"name":a['brand'],"item":f"{DOMAIN}/brendy/{a['bslug']}/"},{"@type":"ListItem","position":4,"name":a['name']}]},ensure_ascii=False)
-    kw=f"{a['name']}, {a['brand']}, "+({"mashiny":f"rc краулер {a['scale']}, радиоуправляемая машина","katera":"радиоуправляемый катер, rc лодка","samolety":"радиоуправляемый самолёт, rc самолёт"}[a['sec']])+", новинка, обзор, цена, характеристики"
-    page(f"{a['sec']}/{a['slug']}/",f"{a['name']}{' ('+a['scale']+')' if a['scale'] else ''}: обзор новинки, характеристики, цена | {NAME}",descr,b,2,kw,f'<script type="application/ld+json">{ld}</script>\n<script type="application/ld+json">{bc}</script>','og/'+a['slug']+'.jpg',"article")
+    crumb2=f'<a href="../">{sn}</a>' if news else '<a href="../../obzory/">Обзоры и сравнения</a>'
+    crumb3=f' / <a href="../../brendy/{a["bslug"]}/">{e(a["brand"])}</a>' if a['bslug'] else ""
+    meta=("" if news or a['name']==a['title'] else e(a['name'])+" · ")+f'<time datetime="{a["iso"]}">{a["date"]}</time>'
+    spec=("<h2>Коротко о модели</h2><table class=\"spec\">"+"".join(f"<tr><th>{k}</th><td>{e(v)}</td></tr>" for k,v in rows)+"</table>") if a['kind'] in ('novost','obzor') else ""
+    b=(f'<div class="crumbs"><a href="../../">Главная</a> / {crumb2}{crumb3}</div>\n'
+       f'<article class="post">{kick1}{kickb}{kick2}<h1>{e(a["title"])}</h1><div class="meta">{meta}</div>\n'
+       f'<figure><img src="../../img/{a["slug"]}.jpg" alt="{e(a["name"])}{msc}" width="{a["w"]}" height="{a["h"]}"><figcaption>{e(a["name"])}. Фото: {e(a["credit"])}</figcaption></figure>\n'
+       f'{rblocks(a,"../../")}\n{spec}\n{feat}{share}{social()}\n<p class="src">{srcl}{note}</p></article>\n'
+       f'<h2 class="sec">{"Ещё новинки" if news else "Ещё обзоры"}</h2><div class="feed">'+"".join(card(x,'../../') for x in others)+'</div>')
+    descr=(a['desc']+" "+("Цена: "+a['price']+". " if a['price'] else "")+(f"Масштаб {a['scale']}, характеристики и фото." if a['scale'] else "Характеристики и фото."))[:300] if news else a['desc'][:300]
+    ld=json.dumps({"@context":"https://schema.org","@type":"NewsArticle" if news else "Article","headline":a['title'][:110],"datePublished":a['iso'],"dateModified":a['iso'],"image":[f"{DOMAIN}/img/{a['slug']}.jpg"]+[f"{DOMAIN}/img/{a['slug']}-{n}.jpg" for n in sorted(a['ph'])],"author":{"@type":"Organization","name":NAME,"url":DOMAIN+"/"},"publisher":{"@type":"Organization","name":NAME},"mainEntityOfPage":pu,"inLanguage":"ru"},ensure_ascii=False)
+    il=[{"@type":"ListItem","position":1,"name":"Главная","item":DOMAIN+"/"},{"@type":"ListItem","position":2,"name":sn if news else "Обзоры и сравнения","item":f"{DOMAIN}/{a['sec']}/" if news else f"{DOMAIN}/obzory/"}]
+    if a['bslug']: il.append({"@type":"ListItem","position":3,"name":a['brand'],"item":f"{DOMAIN}/brendy/{a['bslug']}/"})
+    il.append({"@type":"ListItem","position":len(il)+1,"name":a['name']})
+    bc=json.dumps({"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":il},ensure_ascii=False)
+    if news:
+        kw=f"{a['name']}, {a['brand']}, "+({"mashiny":f"rc краулер {a['scale']}, радиоуправляемая машина","katera":"радиоуправляемый катер, rc лодка","samolety":"радиоуправляемый самолёт, rc самолёт"}[a['sec']])+", новинка, обзор, цена, характеристики"
+        ttl=f"{a['name']}{' ('+a['scale']+')' if a['scale'] else ''}: обзор новинки, характеристики, цена | {NAME}"
+    else:
+        kw=", ".join(x for x in [a['name'],f"обзор {a['name']}" if a['kind']=='obzor' else "",a['brand'],f"краулер {a['scale']}" if a['scale'] else "","радиоуправляемый краулер","какой краулер купить","цена"] if x)
+        ttl=(f"Обзор {a['name']}: плюсы, минусы, цена | {NAME}" if a['kind']=='obzor' else f"{a['title']} | {NAME}")
+    page(f"{a['sec']}/{a['slug']}/",ttl,descr,b,2,kw,f'<script type="application/ld+json">{ld}</script>\n<script type="application/ld+json">{bc}</script>','og/'+a['slug']+'.jpg',"article")
+if REV:
+    page("obzory/",f"Обзоры и сравнения радиоуправляемых краулеров | {NAME}","Обзоры радиоуправляемых краулеров с плюсами и минусами, сравнения моделей и подборки по бюджету. Traxxas, Axial, Redcat, FMS, FTX и другие.",'<div class="crumbs"><a href="../">Главная</a> / Обзоры и сравнения</div><section class="intro" style="padding-top:18px"><h1>Обзоры и сравнения</h1><p>Честные обзоры моделей, сравнения и подборки: что выбрать и за что платить.</p></section><div class="feed">'+"".join(card(x,"../",k>0) for k,x in enumerate(REV))+'</div>',1,"обзоры радиоуправляемых машин, обзор краулера, сравнение краулеров, какой краулер купить, топ краулеров")
 page("o-sajte/",f"О сайте | {NAME}","Hobby Master рассказывает о новинках радиоуправляемых моделей: краулеры, трофи и скейл-модели. Как мы отбираем новости и откуда берём данные.",f'''<article class="post"><h1>О сайте</h1><p>«{NAME}» рассказывает о новинках в мире радиоуправляемых моделей. Главные темы: краулеры, трофи и копийные внедорожники, а также радиоуправляемые катера.</p><p>Мы следим за анонсами производителей и профильных изданий и коротко пересказываем главное: что за модель, чем она интересна, какие у неё характеристики и сколько она стоит.</p><h2>Откуда данные</h2><p>Характеристики и цены взяты из официальных анонсов и новостей профильных изданий, ссылка на источник есть под каждой новостью. Цены в рублях пересчитаны приблизительно и могут отличаться от цен в магазинах.</p><h2>Фотографии</h2><p>Фотографии принадлежат производителям моделей и изданиям-источникам.</p></article>''',1)
-IDX=json.dumps([{"u":f"{a['sec']}/{a['slug']}/","t":a['title'],"n":a['name'],"b":a['brand'],"s":a['scale'],"d":a['date'],"p":(a['price'] or "").split(",")[0],"i":f"img/{a['slug']}.jpg","x":" ".join([a['desc']]+a['body']+a['specs']+[a['status']])} for a in A],ensure_ascii=False).replace("</","<\\/")
+IDX=json.dumps([{"u":f"{a['sec']}/{a['slug']}/","t":a['title'],"n":a['name'],"b":a['brand'] or KINDN[a['kind']],"s":a['scale'],"d":a['date'],"p":(a['price'] or "").split(",")[0],"i":f"img/{a['slug']}.jpg","x":" ".join([a['desc']]+a['body']+a['specs']+[a['status'],KINDN[a['kind']]]+[" ".join(" ".join(r) for r in b[1]) for b in a['blocks'] if b[0]=="table"])} for a in A],ensure_ascii=False).replace("</","<\\/")
 SJS='''<script>(function(){var D=__IDX__,R="../";function nz(s){return (s||"").toLowerCase().replace(/ё/g,"е")}
 function st(w){return /[а-я]/.test(w)&&w.length>4?w.slice(0,Math.max(4,w.length-2)):w}
 function esc(s){return s.replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
@@ -276,7 +352,7 @@ if CARS:
     page("mashiny/",f"Радиоуправляемые машины: новинки, обзоры, цены | {NAME}","Новинки радиоуправляемых машин: краулеры, трофи и скейл-модели в разных масштабах. Характеристики, фото и цены на модели Traxxas, FMS, Vanquish, Tamiya.",f'<div class="crumbs"><a href="../">Главная</a> / Машины</div><section class="intro" style="padding-top:18px"><h1>Радиоуправляемые машины</h1><p>Краулеры, трофи и скейл-модели: все новинки с характеристиками и ценами.</p>{bl}</section><div class="feed">{"".join(card(a,"../",i>0) for i,a in enumerate(CARS))}</div>',1,"радиоуправляемые машины, rc машины, rc краулеры, трофи модели, скейл модели")
 for k,v in BR.items():
     it=[a for a in byd if a['bslug']==k]
-    page(f"brendy/{k}/",f"{v}: новинки радиоуправляемых моделей | {NAME}",f"Все новинки {v}: радиоуправляемые модели, краулеры и трофи. Характеристики, фото и цены.",f'<div class="crumbs"><a href="../../">Главная</a> / Бренды</div><section class="intro" style="padding-top:18px"><h1>{v}</h1><p>Новинки бренда {v}: {len(it)} {plur(len(it))} в ленте.</p></section><div class="feed">{"".join(card(a,"../../",i>0) for i,a in enumerate(it))}</div>',2,f"{v}, {v} новинки, {v} rc, радиоуправляемые модели {v}",noindex=len(it)<2)
+    page(f"brendy/{k}/",f"{v}: новинки радиоуправляемых моделей | {NAME}",f"Все новинки {v}: радиоуправляемые модели, краулеры и трофи. Характеристики, фото и цены.",f'<div class="crumbs"><a href="../../">Главная</a> / Бренды</div><section class="intro" style="padding-top:18px"><h1>{v}</h1><p>Новинки и обзоры {v}: {len(it)} {plur(len(it),"материал","материала","материалов")}.</p></section><div class="feed">{"".join(card(a,"../../",i>0) for i,a in enumerate(it))}</div>',2,f"{v}, {v} новинки, {v} rc, радиоуправляемые модели {v}",noindex=len(it)<2)
 for p_,t_,d_,k_ in [("mashiny","Радиоуправляемые машины","Новинки радиоуправляемых машин: краулеры, трофи и скейл-модели.","радиоуправляемые машины, rc машины"),("katera","Радиоуправляемые катера и лодки","Новинки радиоуправляемых катеров и лодок: глиссеры, катамараны, джет-боты и копийные суда.","радиоуправляемые катера, rc лодки, радиоуправляемые лодки, rc катер"),("samolety","Радиоуправляемые самолёты","Новинки радиоуправляемых самолётов: тренеры, копии, планеры и модели для 3D-пилотажа.","радиоуправляемые самолёты, rc самолёты, авиамодели")]:
     it=[a for a in A if a['sec']==p_]
     if p_=="mashiny" and it: continue
@@ -285,11 +361,11 @@ for p_,t_,d_,k_ in [("mashiny","Радиоуправляемые машины","
     else: page(p_+"/",f"{t_}: новинки | {NAME}",d_,cr+'<div class="empty">Раздел готовится. Первые новости появятся здесь в ближайшее время, а пока посмотрите <a href="../">все новинки</a>.</div>',1,noindex=True)
 open(OUT+"/favicon.svg","w").write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#111214"/><text x="32" y="43" font-family="Arial,sans-serif" font-weight="900" font-size="26" text-anchor="middle" fill="#ffd60a">HM</text></svg>')
 open(OUT+"/robots.txt","w").write(f"User-agent: *\nAllow: /\n\nSitemap: {DOMAIN}/sitemap.xml\n")
-u=[("",A[0]['iso'])]+[(f"{a['sec']}/{a['slug']}/",a['iso']) for a in A]+[(k+"/",max(a['iso'] for a in A if a['sec']==k)) for k in SECS if any(a['sec']==k for a in A)]+[(f"brendy/{k}/",max(a['iso'] for a in A if a['bslug']==k)) for k in BR if sum(a['bslug']==k for a in A)>1]+[(f"mashiny/{k}/",max(a['iso'] for a in A if a['sslug']==k)) for k in SCL if sum(a['sslug']==k for a in A)>1]+[("o-sajte/","2026-10-11")]
+u=[("",A[0]['iso'])]+[(f"{a['sec']}/{a['slug']}/",a['iso']) for a in A]+[(k+"/",max(a['iso'] for a in A if a['sec']==k)) for k in SECS if any(a['sec']==k for a in A)]+[(f"brendy/{k}/",max(a['iso'] for a in A if a['bslug']==k)) for k in BR if sum(a['bslug']==k for a in A)>1]+[(f"mashiny/{k}/",max(a['iso'] for a in A if a['sslug']==k)) for k in SCL if sum(a['sslug']==k for a in A)>1]+([("obzory/",REV[0]['iso'])] if REV else [])+[("o-sajte/","2026-10-11")]
 open(OUT+"/sitemap.xml","w").write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+"".join(f"<url><loc>{DOMAIN}/{p}</loc><lastmod>{d}</lastmod></url>\n" for p,d in u)+"</urlset>\n")
 def rfc(a): return format_datetime(datetime.fromisoformat(a['iso']).replace(hour=9,tzinfo=timezone.utc))
-def cdata(a): return "<![CDATA["+f'<img src="{DOMAIN}/img/{a["slug"]}.jpg" alt="{e(a["name"])}">'+"".join(f"<p>{e(p)}</p>" for p in a['body'])+("<ul>"+"".join(f"<li>{e(x)}</li>" for x in a['specs'])+"</ul>" if a['specs'] else "")+"]]>"
-items="".join(f"<item><title>{e(a['title'])}</title><link>{DOMAIN}/{a['sec']}/{a['slug']}/</link><guid isPermaLink=\"true\">{DOMAIN}/{a['sec']}/{a['slug']}/</guid><pubDate>{rfc(a)}</pubDate><category>{SECS[a['sec']][0]}</category><category>{e(a['brand'])}</category><description>{e(a['desc'])}</description><content:encoded>{cdata(a)}</content:encoded><enclosure url=\"{DOMAIN}/img/{a['slug']}.jpg\" type=\"image/jpeg\" length=\"{os.path.getsize(OUT+'/img/'+a['slug']+'.jpg')}\"/></item>\n" for a in byd)
+def cdata(a): return "<![CDATA["+f'<img src="{DOMAIN}/img/{a["slug"]}.jpg" alt="{e(a["name"])}">'+rblocks(a,DOMAIN+"/")+("<ul>"+"".join(f"<li>{e(x)}</li>" for x in a['specs'])+"</ul>" if a['specs'] else "")+"]]>"
+items="".join(f"<item><title>{e(a['title'])}</title><link>{DOMAIN}/{a['sec']}/{a['slug']}/</link><guid isPermaLink=\"true\">{DOMAIN}/{a['sec']}/{a['slug']}/</guid><pubDate>{rfc(a)}</pubDate><category>{SECS[a['sec']][0]}</category>{f"<category>{e(a['brand'])}</category>" if a['brand'] else ""}{f"<category>{KINDN[a['kind']]}</category>" if a['kind']!='novost' else ""}<description>{e(a['desc'])}</description><content:encoded>{cdata(a)}</content:encoded><enclosure url=\"{DOMAIN}/img/{a['slug']}.jpg\" type=\"image/jpeg\" length=\"{os.path.getsize(OUT+'/img/'+a['slug']+'.jpg')}\"/></item>\n" for a in byd)
 open(OUT+"/rss.xml","w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>{NAME}</title><link>{DOMAIN}/</link><atom:link href="{DOMAIN}/rss.xml" rel="self" type="application/rss+xml"/><description>{TAG}</description><language>ru</language><lastBuildDate>{rfc(byd[0])}</lastBuildDate><image><url>{DOMAIN}/og/site.jpg</url><title>{NAME}</title><link>{DOMAIN}/</link></image>\n{items}</channel></rss>\n')
 open(OUT+"/CNAME","w").write("hobby-master.online\n")
 
@@ -322,7 +398,7 @@ def og(a):
     im.paste(ph,((1200*SS-ph.width)//2,(470*SS-ph.height)//2))
     dr=ImageDraw.Draw(im); dr.rectangle([0,470*SS,1200*SS,630*SS],fill="#111214")
     x=pill(im,0,550*SS,25*SS,22*SS,13*SS,left=48*SS)+30*SS
-    maxw=1200*SS-48*SS-x; sub=a['brand']+(f" · масштаб {a['scale']}" if a['scale'] else "")
+    maxw=1200*SS-48*SS-x; sub=" · ".join(x for x in [KINDN[a['kind']] if a['kind']!='novost' else "",a['brand'],f"масштаб {a['scale']}" if a['scale'] else ""] if x)
     for size in (38,34,30,27,24):
         f=F("Inter-ExtraBold.otf",size*SS); lines=wrap(dr,a['name'],f,maxw)
         if len(lines)<=2 and all(dr.textlength(l,font=f)<=maxw for l in lines): break
