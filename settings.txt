@@ -3,6 +3,9 @@
 Телеграм: https://t.me/hobbymaster_ru
 ВКонтакте: https://vk.ru/club242226660
 
+# Номер счётчика MyTracker / Top.Mail.Ru (только цифры)
+MyTracker: 3803325
+
 # Номер счётчика Яндекс Метрики (только цифры)
 Метрика:
 

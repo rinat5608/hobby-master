@@ -20,7 +20,7 @@ if os.path.exists("settings.txt"):
     for ln in readtxt("settings.txt").split("\n"):
         if ":" in ln and not ln.strip().startswith("#"):
             k,v=ln.split(":",1); SET[norm(k)]=v.strip()
-TG=SET.get("телеграм",""); VK=SET.get("вконтакте",""); METRIKA_ID=re.sub(r"\D","",SET.get("метрика","")); YA_VERIFY=SET.get("яндекс вебмастер",""); G_VERIFY=SET.get("google","")
+TG=SET.get("телеграм",""); VK=SET.get("вконтакте",""); METRIKA_ID=re.sub(r"\D","",SET.get("метрика","")); MYTRACKER_ID=re.sub(r"\D","",SET.get("mytracker","") or SET.get("топ мейл","") or SET.get("top.mail.ru","")); YA_VERIFY=SET.get("яндекс вебмастер",""); G_VERIFY=SET.get("google","")
 SECS={"mashiny":("Машины","машины"),"katera":("Катера и лодки","катера"),"samolety":("Самолёты","самолеты")}
 SECMAP={"машины":"mashiny","машина":"mashiny","авто":"mashiny","катера":"katera","катер":"katera","лодки":"katera","лодка":"katera","катера и лодки":"katera","самолеты":"samolety","самолет":"samolety"}
 MONTHS="января февраля марта апреля мая июня июля августа сентября октября ноября декабря".split()
@@ -262,6 +262,9 @@ def page(path,title,descr,body,depth,kw="",extra="",ogimg=None,ogtype="website",
 </main>
 <footer><div class="wrap">© {YEAR} {NAME}. {TAG}. Фотографии принадлежат производителям и изданиям-источникам. <a href="{r}o-sajte/">О сайте</a> · <a href="{r}rss.xml">RSS</a>{inf}</div></footer>
 {met}
+{f'''<!-- Top.Mail.Ru / MyTracker counter -->
+<script>var _tmr=window._tmr||(window._tmr=[]);_tmr.push({{id:"{MYTRACKER_ID}",type:"pageView",start:(new Date()).getTime()}});(function(d,w,id){{if(d.getElementById(id))return;var ts=d.createElement("script");ts.async=true;ts.id=id;ts.src="https://top-fwz1.mail.ru/js/code.js";var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(ts,s)}})(document,window,"tmr-code");</script>
+<noscript><div><img src="https://top-fwz1.mail.ru/counter?id={MYTRACKER_ID};js=na" style="position:absolute;left:-9999px" alt=""></div></noscript>''' if MYTRACKER_ID else ""}
 <script>(function(){{var m=document.getElementById('menu'),b=document.querySelector('.burger'),s=document.querySelector('.shade');function t(o){{m.classList.toggle('open',o);s.hidden=!o;b.setAttribute('aria-expanded',o);document.documentElement.style.overflow=o?'hidden':''}}b.onclick=function(){{t(!m.classList.contains('open'))}};s.onclick=m.querySelector('.x').onclick=function(){{t(false)}};document.addEventListener('keydown',function(e){{if(e.key==='Escape')t(false)}});var h=document.documentElement,tb=document.querySelector('.theme'),mq=window.matchMedia('(prefers-color-scheme: dark)');function cur(){{return h.getAttribute('data-theme')||(mq.matches?'dark':'light')}}function lab(){{tb.querySelector('span').textContent=cur()==='dark'?'Светлая тема':'Тёмная тема'}}tb.onclick=function(){{var n=cur()==='dark'?'light':'dark';h.setAttribute('data-theme',n);try{{localStorage.setItem('theme',n)}}catch(e){{}}lab()}};lab()}})();</script>
 </body></html>'''
     fp=os.path.join(OUT,path,"index.html") if not path.endswith(".html") else os.path.join(OUT,path)
