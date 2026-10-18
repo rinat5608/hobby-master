@@ -380,6 +380,12 @@ def cdata(a): return "<![CDATA["+f'<img src="{DOMAIN}/img/{a["slug"]}.jpg" alt="
 items="".join(f"<item><title>{e(a['title'])}</title><link>{DOMAIN}/{a['sec']}/{a['slug']}/</link><guid isPermaLink=\"true\">{DOMAIN}/{a['sec']}/{a['slug']}/</guid><pubDate>{rfc(a)}</pubDate><category>{SECS[a['sec']][0]}</category>{f"<category>{e(a['brand'])}</category>" if a['brand'] else ""}{f"<category>{KINDN[a['kind']]}</category>" if a['kind']!='novost' else ""}<description>{e(a['desc'])}</description><content:encoded>{cdata(a)}</content:encoded><enclosure url=\"{DOMAIN}/img/{a['slug']}.jpg\" type=\"image/jpeg\" length=\"{os.path.getsize(OUT+'/img/'+a['slug']+'.jpg')}\"/></item>\n" for a in byd)
 open(OUT+"/rss.xml","w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>{NAME}</title><link>{DOMAIN}/</link><atom:link href="{DOMAIN}/rss.xml" rel="self" type="application/rss+xml"/><description>{TAG}</description><language>ru</language><lastBuildDate>{rfc(byd[0])}</lastBuildDate><image><url>{DOMAIN}/og/site.jpg</url><title>{NAME}</title><link>{DOMAIN}/</link></image>\n{items}</channel></rss>\n')
 open(OUT+"/CNAME","w").write("hobby-master.online\n")
+# IndexNow: ключ для Яндекса и Bing + список адресов для indexnow.py
+INDEXNOW_KEY=re.sub(r"[^A-Za-z0-9-]","",SET.get("indexnow","")) or "11d2aa96c0aa98a9ea92ed1c7c846f9b"
+open(f"{OUT}/{INDEXNOW_KEY}.txt","w").write(INDEXNOW_KEY)
+_files={}
+for a in A: _files[a['slug']]=f"{DOMAIN}/{a['sec']}/{a['slug']}/"
+json.dump({"key":INDEXNOW_KEY,"host":urlparse(DOMAIN).netloc,"all":[f"{DOMAIN}/{p}" for p,_ in u],"byslug":_files},open("indexnow-urls.json","w",encoding="utf-8"),ensure_ascii=False)
 
 # картинки-превью для ссылок (Telegram, ВК и т. д.)
 os.makedirs(OUT+"/og",exist_ok=True)
