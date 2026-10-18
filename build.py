@@ -38,8 +38,8 @@ def pdate(s):
     if m and m.group(2) in MONTHS: return date(int(m.group(3)),MONTHS.index(m.group(2))+1,int(m.group(1)))
     raise ValueError("не понял дату «"+s+"», нужен вид 06.10.2026")
 BRANDS2=["Cross RC","Hobby Plus","Traction Hobby","Pro Boat","Team Associated","Element RC","Team Losi","RC4WD","Boom Racing","Carisma Scale","Killerbody RC","HPI Racing","Tekno RC","E-flite","Horizon Hobby"]
-KINDMAP={"новость":"novost","новости":"novost","обзор":"obzor","сравнение":"sravnenie","топ":"top","подборка":"top","рейтинг":"top"}
-KINDN={"novost":"Новость","obzor":"Обзор","sravnenie":"Сравнение","top":"Топ"}
+KINDMAP={"новость":"novost","новости":"novost","обзор":"obzor","сравнение":"sravnenie","топ":"top","подборка":"top","рейтинг":"top","гайд":"gid","гайды":"gid","инструкция":"gid"}
+KINDN={"novost":"Новость","obzor":"Обзор","sravnenie":"Сравнение","top":"Топ","gid":"Гайд"}
 SRCN={"bigsquidrc.com":"Big Squid RC","traxxas.com":"Traxxas","redcatracing.com":"Redcat","fmshobby.com":"FMS","ftx-rc.com":"FTX","remo-hobby.ru":"Remo Hobby"}
 OUT="site"; shutil.rmtree(OUT,ignore_errors=True); os.makedirs(OUT+"/img"); os.makedirs(OUT+"/css")
 e=html.escape
@@ -98,7 +98,7 @@ for fp in sorted(_TX.values(),key=lambda x:os.path.basename(x)):
         scale=H.get("масштаб","").replace("/",":").replace(" ","")
         if scale and not re.match(r"^1:\d+$",scale): scale=""
         if "бренд" in H: brand=H["бренд"] if H["бренд"] not in ("-","—","нет","") else ""
-        elif kind in ("sravnenie","top"): brand=""
+        elif kind in ("sravnenie","top","gid"): brand=""
         else: brand=next((b for b in BRANDS2 if norm(name).startswith(norm(b)+" ")),name.split()[0].rstrip(","))
         slug=slugify(base)
         if not slug or slug in seen: raise ValueError("имя файла должно быть уникальным и состоять из латинских букв, цифр и дефисов")
@@ -333,11 +333,12 @@ for i,a in enumerate(A):
         kw=f"{a['name']}, {a['brand']}, "+({"mashiny":f"rc краулер {a['scale']}, радиоуправляемая машина","katera":"радиоуправляемый катер, rc лодка","samolety":"радиоуправляемый самолёт, rc самолёт"}[a['sec']])+", новинка, обзор, цена, характеристики"
         ttl=f"{a['name']}{' ('+a['scale']+')' if a['scale'] else ''}: обзор новинки, характеристики, цена | {NAME}"
     else:
-        kw=", ".join(x for x in [a['name'],f"обзор {a['name']}" if a['kind']=='obzor' else "",a['brand'],f"краулер {a['scale']}" if a['scale'] else "","радиоуправляемый краулер","какой краулер купить","цена"] if x)
+        if a['kind']=='gid': kw=", ".join([a['title'],a['name'],"радиоуправляемые машины","rc модели","гайд для новичков","как выбрать"])
+        else: kw=", ".join(x for x in [a['name'],f"обзор {a['name']}" if a['kind']=='obzor' else "",a['brand'],f"краулер {a['scale']}" if a['scale'] else "","радиоуправляемая машина","какую купить","цена"] if x)
         ttl=(f"Обзор {a['name']}: плюсы, минусы, цена | {NAME}" if a['kind']=='obzor' else f"{a['title']} | {NAME}")
     page(f"{a['sec']}/{a['slug']}/",ttl,descr,b,2,kw,f'<script type="application/ld+json">{ld}</script>\n<script type="application/ld+json">{bc}</script>','og/'+a['slug']+'.jpg',"article")
 if REV:
-    page("obzory/",f"Обзоры и сравнения радиоуправляемых краулеров | {NAME}","Обзоры радиоуправляемых краулеров с плюсами и минусами, сравнения моделей и подборки по бюджету. Traxxas, Axial, Redcat, FMS, FTX и другие.",'<div class="crumbs"><a href="../">Главная</a> / Обзоры и сравнения</div><section class="intro" style="padding-top:18px"><h1>Обзоры и сравнения</h1><p>Честные обзоры моделей, сравнения и подборки: что выбрать и за что платить.</p></section><div class="feed">'+"".join(card(x,"../",k>0) for k,x in enumerate(REV))+'</div>',1,"обзоры радиоуправляемых машин, обзор краулера, сравнение краулеров, какой краулер купить, топ краулеров")
+    page("obzory/",f"Обзоры, сравнения и гайды по радиоуправляемым машинам | {NAME}","Обзоры радиоуправляемых машин с плюсами и минусами, сравнения моделей, подборки по бюджету и гайды для новичков: краулеры, монстр-траки, дрифт, аккумуляторы.",'<div class="crumbs"><a href="../">Главная</a> / Обзоры и сравнения</div><section class="intro" style="padding-top:18px"><h1>Обзоры и сравнения</h1><p>Честные обзоры моделей, сравнения, подборки и гайды для новичков: что выбрать и за что платить.</p></section><div class="feed">'+"".join(card(x,"../",k>0) for k,x in enumerate(REV))+'</div>',1,"обзоры радиоуправляемых машин, обзор краулера, сравнение краулеров, какой краулер купить, топ краулеров")
 page("o-sajte/",f"О сайте | {NAME}","Hobby Master рассказывает о новинках радиоуправляемых моделей: краулеры, трофи и скейл-модели. Как мы отбираем новости и откуда берём данные.",f'''<article class="post"><h1>О сайте</h1><p>«{NAME}» рассказывает о новинках в мире радиоуправляемых моделей. Главные темы: краулеры, трофи и копийные внедорожники, а также радиоуправляемые катера.</p><p>Мы следим за анонсами производителей и профильных изданий и коротко пересказываем главное: что за модель, чем она интересна, какие у неё характеристики и сколько она стоит.</p><h2>Откуда данные</h2><p>Характеристики и цены взяты из официальных анонсов и новостей профильных изданий, ссылка на источник есть под каждой новостью. Цены в рублях пересчитаны приблизительно и могут отличаться от цен в магазинах.</p><h2>Фотографии</h2><p>Фотографии принадлежат производителям моделей и изданиям-источникам.</p></article>''',1)
 IDX=json.dumps([{"u":f"{a['sec']}/{a['slug']}/","t":a['title'],"n":a['name'],"b":a['brand'] or KINDN[a['kind']],"s":a['scale'],"d":a['date'],"p":(a['price'] or "").split(",")[0],"i":f"img/{a['slug']}.jpg","x":" ".join([a['desc']]+a['body']+a['specs']+[a['status'],KINDN[a['kind']]]+[" ".join(" ".join(r) for r in b[1]) for b in a['blocks'] if b[0]=="table"])} for a in A],ensure_ascii=False).replace("</","<\\/")
 SJS='''<script>(function(){var D=__IDX__,R="../";function nz(s){return (s||"").toLowerCase().replace(/ё/g,"е")}
